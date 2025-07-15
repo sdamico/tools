@@ -19,10 +19,25 @@ A comprehensive suite of command-line tools for interacting with Grok AI via the
 ```
 
 This will:
-1. Copy all tools to `~/bin`
-2. Set up contexts in `~/.grok/contexts`
-3. Add `~/bin` to your PATH (if needed)
-4. Verify the installation
+1. Check for required dependencies (curl, jq, base64)
+2. Copy all tools to `~/bin`
+3. Set up contexts in `~/.grok/contexts`
+4. Add `~/bin` to your PATH (if needed)
+5. Create a config file at `~/.grok/config` with your API key
+6. Verify the installation
+
+### Updating
+
+To update to the latest version:
+
+```bash
+grok-update
+```
+
+This will:
+- Fetch the latest changes from GitHub
+- Show you what's new
+- Update your tools while preserving your local config
 
 ### Manual Installation
 
@@ -33,13 +48,29 @@ This will:
 
 ### API Key Setup
 
-Set your Grok API key as an environment variable:
+During installation, you'll be prompted to enter your Grok API key. The installer will create a configuration file at `~/.grok/config` to store your API key securely.
+
+If you need to update your API key later, edit the config file:
 
 ```bash
-export GROK_API_KEY="your-api-key-here"
+# Edit the config file
+nano ~/.grok/config
 ```
 
-Add this to your shell configuration file (`~/.bashrc`, `~/.zshrc`, etc.) to make it permanent.
+The config file format:
+```bash
+#!/bin/bash
+# Local Grok configuration - DO NOT COMMIT TO GIT!
+
+# API Configuration
+export GROK_API_KEY="your-api-key-here"
+export GROK_API_ENDPOINT="https://api.x.ai/v1"
+
+# Default model
+export GROK_MODEL="grok-4-0709"
+```
+
+**Important**: The config file is automatically excluded from git and has restricted permissions (600) for security.
 
 ## Tools Reference
 
@@ -239,19 +270,26 @@ grok-codebase . "Which files need security review?" | \
   xargs -I {} grok -c code-review -f {} "Security audit"
 ```
 
-### Environment Variables
+### Configuration
+
+Grok tools use a configuration file at `~/.grok/config` that is automatically created during installation. This file contains:
 
 - `GROK_API_KEY` - Your xAI API key (required)
 - `GROK_API_ENDPOINT` - API endpoint (default: https://api.x.ai/v1)
-- `GROK_MODEL` - Default model to use
+- `GROK_MODEL` - Default model to use (default: grok-4-0709)
+
+Additional environment variables:
 - `GROK_CONFIG_DIR` - Configuration directory (default: ~/.grok)
+- `GROK_DEBUG` - Set to 1 for debug output
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **"GROK_API_KEY environment variable is not set"**
-   - Set your API key: `export GROK_API_KEY="your-key"`
+   - Check if config file exists: `ls ~/.grok/config`
+   - If missing, run the installer again: `./install.sh`
+   - Or create it manually: `nano ~/.grok/config`
 
 2. **"jq: command not found"**
    - Install jq: `brew install jq` (macOS) or `apt install jq` (Ubuntu)
@@ -272,10 +310,13 @@ GROK_DEBUG=1 grok "test query"
 
 ## Security Considerations
 
-- **API Key**: Never commit your API key to version control
+- **API Key**: Stored in `~/.grok/config` with restricted permissions (600)
+- **Config File**: Automatically excluded from git via .gitignore
 - **Shell Execution**: Be careful with `-x` flag and `grok-shell -y`
 - **File Access**: The tools can read any file you have access to
 - **Network**: All requests go to xAI's API over HTTPS
+
+**Important**: Never commit your config file to version control. The installer creates it with proper permissions and the repository's .gitignore excludes it automatically.
 
 ## Contributing
 

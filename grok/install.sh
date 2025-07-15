@@ -96,21 +96,63 @@ else
     echo -e "  ${YELLOW}Note:${NC} Run 'source $SHELL_CONFIG' or restart your terminal"
 fi
 
-# Check for API key
+# Create or check config file
 echo
-echo "Checking API key..."
-if [ -n "$GROK_API_KEY" ]; then
-    echo -e "  ${GREEN}✓${NC} GROK_API_KEY is set"
+echo "Setting up configuration..."
+CONFIG_FILE="$CONFIG_DIR/config"
+
+if [ -f "$CONFIG_FILE" ]; then
+    echo -e "  ${GREEN}✓${NC} Config file already exists at $CONFIG_FILE"
+    # Source it to check if API key is set
+    source "$CONFIG_FILE"
 else
-    echo -e "  ${YELLOW}!${NC} GROK_API_KEY is not set"
-    echo
-    echo "To use Grok tools, you need to set your API key:"
-    echo "  export GROK_API_KEY=\"your-api-key-here\""
-    echo
-    echo "Get your API key from: https://x.ai"
-    echo
-    echo "Add it to your shell config to make it permanent:"
-    echo "  echo 'export GROK_API_KEY=\"your-api-key\"' >> $SHELL_CONFIG"
+    echo -e "  Creating config file at $CONFIG_FILE"
+    
+    # Check for API key in environment
+    if [ -n "$GROK_API_KEY" ]; then
+        echo -e "  ${GREEN}✓${NC} Found GROK_API_KEY in environment"
+        API_KEY_TO_USE="$GROK_API_KEY"
+    else
+        echo -e "  ${YELLOW}!${NC} No GROK_API_KEY found"
+        echo
+        echo "To use Grok tools, you need an API key from https://x.ai"
+        echo -n "Enter your Grok API key (or press Enter to set it later): "
+        read -r API_KEY_TO_USE
+    fi
+    
+    # Create config file
+    cat > "$CONFIG_FILE" << EOF
+#!/bin/bash
+# Local Grok configuration - DO NOT COMMIT TO GIT!
+
+# API Configuration
+export GROK_API_KEY="${API_KEY_TO_USE}"
+export GROK_API_ENDPOINT="https://api.x.ai/v1"
+
+# Default model
+export GROK_MODEL="grok-4-0709"
+
+# Optional settings
+# export GROK_DEBUG=1  # Uncomment for debug mode
+# export GROK_CONFIG_DIR="\$HOME/.grok"
+EOF
+    
+    chmod 600 "$CONFIG_FILE"  # Restrict permissions
+    echo -e "  ${GREEN}✓${NC} Config file created"
+    
+    if [ -z "$API_KEY_TO_USE" ]; then
+        echo
+        echo -e "  ${YELLOW}Important:${NC} Edit $CONFIG_FILE to add your API key"
+    fi
+fi
+
+# Check if API key is configured
+source "$CONFIG_FILE" 2>/dev/null || true
+if [ -n "$GROK_API_KEY" ] && [ "$GROK_API_KEY" != "" ]; then
+    echo -e "  ${GREEN}✓${NC} API key is configured"
+else
+    echo -e "  ${YELLOW}!${NC} API key not configured"
+    echo "  Edit $CONFIG_FILE and add your API key"
 fi
 
 # Test installation
