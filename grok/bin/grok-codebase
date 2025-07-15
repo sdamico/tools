@@ -1,0 +1,115 @@
+#!/bin/bash
+# Analyze entire codebases with Grok (similar to gemini -p)
+
+usage() {
+    cat << EOF
+Grok Codebase Analyzer
+
+Usage:
+  grok-codebase [OPTIONS] PATH "prompt"
+  
+Options:
+  -e, --extensions  File extensions to include (default: common code files)
+  -i, --ignore      Patterns to ignore (default: node_modules, .git, etc)
+  -c, --context     Use specific context (default: code-review)
+  --max-files       Maximum files to include (default: 50)
+  
+Examples:
+  grok-codebase . "Explain the architecture"
+  grok-codebase -e py,js src/ "Find security issues"
+  grok-codebase --ignore test . "Review production code only"
+EOF
+}
+
+# Defaults
+EXTENSIONS="py,js,ts,jsx,tsx,java,c,cpp,h,go,rs,rb,php,swift,kt,scala,sh,yaml,yml,json,xml,html,css,scss,sql,md"
+IGNORE_PATTERNS="node_modules|\.git|\.venv|__pycache__|\.pytest_cache|dist|build|coverage|\.next|\.nuxt"
+CONTEXT="code-review"
+MAX_FILES=50
+PATH_ARG="."
+PROMPT=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -e|--extensions)
+            EXTENSIONS="$2"
+            shift 2
+            ;;
+        -i|--ignore)
+            IGNORE_PATTERNS="$2"
+            shift 2
+            ;;
+        -c|--context)
+            CONTEXT="$2"
+            shift 2
+            ;;
+        --max-files)
+            MAX_FILES="$2"
+            shift 2
+            ;;
+        *)
+            if [ -z "$PATH_ARG" ]; then
+                PATH_ARG="$1"
+            else
+                PROMPT="$*"
+                break
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$PROMPT" ]; then
+    echo "Error: No prompt provided"
+    usage
+    exit 1
+fi
+
+# Build find command
+echo "Analyzing codebase in: $PATH_ARG"
+echo "Extensions: $EXTENSIONS"
+echo "---"
+
+# Convert extensions to find pattern
+EXT_PATTERN=""
+IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
+for ext in "${EXT_ARRAY[@]}"; do
+    if [ -z "$EXT_PATTERN" ]; then
+        EXT_PATTERN="-name \"*.$ext\""
+    else
+        EXT_PATTERN="$EXT_PATTERN -o -name \"*.$ext\""
+    fi
+done
+
+# Find files
+FILES=$(eval "find \"$PATH_ARG\" -type f \( $EXT_PATTERN \) | grep -vE \"$IGNORE_PATTERNS\" | head -n $MAX_FILES")
+
+if [ -z "$FILES" ]; then
+    echo "No files found matching criteria"
+    exit 1
+fi
+
+# Count files
+FILE_COUNT=$(echo "$FILES" | wc -l)
+echo "Found $FILE_COUNT files to analyze"
+
+# Build grok command
+GROK_CMD="~/bin/grok -c $CONTEXT"
+
+# Add files
+while IFS= read -r file; do
+    GROK_CMD="$GROK_CMD -f \"$file\""
+done <<< "$FILES"
+
+# Add prompt
+GROK_CMD="$GROK_CMD \"$PROMPT\""
+
+# Execute
+echo "Running analysis..."
+echo "---"
+eval "$GROK_CMD"

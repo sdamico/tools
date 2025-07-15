@@ -1,0 +1,52 @@
+# Environment variables and secrets
+.env
+.env.local
+*.key
+*_key
+api_key*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor directories and files
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+
+# Test coverage
+coverage/
+.nyc_output
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/

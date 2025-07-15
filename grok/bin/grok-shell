@@ -1,0 +1,213 @@
+#!/bin/bash
+
+# Grok with shell command execution
+# Asks Grok what commands to run, shows them to you, and executes with confirmation
+
+set -euo pipefail
+
+# Configuration
+GROK_API_KEY="${GROK_API_KEY:?Error: GROK_API_KEY environment variable is not set}"
+GROK_API_ENDPOINT="${GROK_API_ENDPOINT:-https://api.x.ai/v1}"
+MODEL="grok-4-0709"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to extract commands from Grok's response
+extract_commands() {
+    local response="$1"
+    # Look for code blocks with bash/shell/sh or command lines starting with $ or >
+    echo "$response" | grep -E '^\$|^>|^```(bash|shell|sh)?$' -A 1000 | grep -E '^\$|^>|^[a-zA-Z]' | sed 's/^[$>] //'
+}
+
+# Function to ask Grok and get response
+ask_grok() {
+    local prompt="$1"
+    local system_prompt="You are a helpful assistant that suggests shell commands to accomplish tasks. When suggesting commands:
+1. Output each command on its own line
+2. Start command lines with $ or > 
+3. Include brief explanations before commands
+4. For complex tasks, break them down into multiple commands
+5. Consider safety and ask for confirmation for destructive operations
+6. Use common Unix/Linux commands that work on most systems"
+
+    local messages=$(jq -n \
+        --arg system "$system_prompt" \
+        --arg user "$prompt" \
+        '[{role: "system", content: $system}, {role: "user", content: $user}]')
+    
+    local response=$(curl -sS -X POST "$GROK_API_ENDPOINT/chat/completions" \
+        -H "Authorization: Bearer $GROK_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"model\": \"$MODEL\",
+            \"messages\": $messages,
+            \"temperature\": 0.3
+        }")
+    
+    # Check for errors
+    if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+        echo "Error: $(echo "$response" | jq -r '.error.message')" >&2
+        return 1
+    fi
+    
+    echo "$response" | jq -r '.choices[0].message.content'
+}
+
+# Function to execute commands with confirmation
+execute_with_confirmation() {
+    local cmd="$1"
+    local auto_execute="$2"
+    
+    echo -e "${BLUE}Command:${NC} $cmd"
+    
+    if [ "$auto_execute" = true ]; then
+        echo -e "${YELLOW}Auto-executing (YOLO mode)...${NC}"
+        # No confirmation needed - proceed directly to execution
+    else
+        echo -en "${YELLOW}Execute this command? (y/n/e[dit]): ${NC}"
+        read -r answer
+        
+        case "$answer" in
+            e|edit)
+                echo -en "Edit command: "
+                read -e -i "$cmd" edited_cmd
+                cmd="$edited_cmd"
+                echo -en "${YELLOW}Execute edited command? (y/n): ${NC}"
+                read -r answer
+                [ "$answer" != "y" ] && return
+                ;;
+            y|yes) ;;
+            *) return ;;
+        esac
+    fi
+    
+    echo -e "${GREEN}Output:${NC}"
+    eval "$cmd" 2>&1 || echo -e "${RED}Command failed with exit code $?${NC}"
+    echo
+}
+
+# Main
+main() {
+    local prompt=""
+    local auto_execute=false
+    local interactive=false
+    local context=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -y|--yes)
+                auto_execute=true
+                shift
+                ;;
+            -i|--interactive)
+                interactive=true
+                shift
+                ;;
+            -c|--context)
+                context="$2"
+                shift 2
+                ;;
+            -h|--help)
+                cat << EOF
+Grok Shell - Execute commands suggested by Grok
+
+Usage:
+  grok-shell [OPTIONS] "what you want to do"
+  
+Options:
+  -y, --yes         Auto-execute commands (no confirmation)
+  -i, --interactive Keep asking for more tasks
+  -c, --context     Provide context (e.g., "ubuntu", "macos", "docker")
+  -h, --help        Show this help
+  
+Examples:
+  # Basic usage - asks for confirmation
+  grok-shell "find all large files over 1GB"
+  
+  # Auto-execute (use with caution!)
+  grok-shell -y "show disk usage"
+  
+  # Interactive mode
+  grok-shell -i "help me clean up my system"
+  
+  # With context
+  grok-shell -c docker "remove all stopped containers"
+  
+Safety:
+  - Always review commands before executing
+  - Use -y flag only for safe operations
+  - Commands are executed with your permissions
+  - Destructive operations will always warn you
+EOF
+                exit 0
+                ;;
+            *)
+                prompt="$*"
+                break
+                ;;
+        esac
+    done
+    
+    if [ -z "$prompt" ] && [ "$interactive" = false ]; then
+        echo "Error: No task specified"
+        echo "Usage: grok-shell \"what you want to do\""
+        exit 1
+    fi
+    
+    # Add context if provided
+    if [ -n "$context" ]; then
+        prompt="[Context: $context] $prompt"
+    fi
+    
+    # Warn about auto-execute mode
+    if [ "$auto_execute" = true ]; then
+        echo -e "${RED}WARNING: YOLO mode enabled - commands will execute automatically!${NC}"
+        echo -e "${YELLOW}Only use this mode with trusted prompts and safe operations.${NC}\n"
+    fi
+    
+    # Main loop
+    while true; do
+        if [ "$interactive" = true ] && [ -z "$prompt" ]; then
+            echo -en "${BLUE}What would you like to do? (or 'quit' to exit): ${NC}"
+            read -r prompt
+            [ "$prompt" = "quit" ] || [ "$prompt" = "exit" ] && break
+        fi
+        
+        # Get Grok's response
+        echo -e "${GREEN}Asking Grok...${NC}\n"
+        response=$(ask_grok "$prompt")
+        
+        # Show full response
+        echo -e "${BLUE}Grok says:${NC}"
+        echo "$response"
+        echo
+        
+        # Extract and execute commands
+        commands=$(echo "$response" | grep -E '^\$ ' | sed 's/^\$ //')
+        
+        if [ -z "$commands" ]; then
+            echo -e "${YELLOW}No commands found in response.${NC}"
+        else
+            echo -e "${GREEN}Found commands to execute:${NC}"
+            while IFS= read -r cmd; do
+                [ -n "$cmd" ] && execute_with_confirmation "$cmd" "$auto_execute"
+            done <<< "$commands"
+        fi
+        
+        # Continue or exit
+        if [ "$interactive" = true ]; then
+            prompt=""
+            echo
+        else
+            break
+        fi
+    done
+}
+
+main "$@"

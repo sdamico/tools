@@ -1,0 +1,261 @@
+#!/bin/bash
+
+# Grok 4 API wrapper script with context support
+# Usage: 
+#   grok "your prompt here"                    # Basic usage
+#   grok -c context_name "your prompt here"    # With named context
+#   grok -s "system prompt" "your prompt"      # With custom system prompt
+#   grok -f file.txt "analyze this file"       # Include file content
+#   grok -i image.png "describe this image"    # Include images/screenshots
+
+# Set API credentials
+GROK_API_KEY="${GROK_API_KEY:?Error: GROK_API_KEY environment variable is not set}"
+GROK_API_ENDPOINT="${GROK_API_ENDPOINT:-https://api.x.ai/v1}"
+
+# Default values
+CONTEXT=""
+SYSTEM_PROMPT=""
+FILE_CONTENTS=()
+FILE_NAMES=()
+IMAGE_PATHS=()
+MODEL="grok-4-0709"
+TEMPERATURE=0.7
+STREAM=false
+OUTPUT_FORMAT="markdown"
+CONVERSATION_MODE=false
+CONVERSATION_FILE=""
+EXECUTE_MODE=false
+
+# Parse command line options
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--context)
+            CONTEXT="$2"
+            shift 2
+            ;;
+        -s|--system)
+            SYSTEM_PROMPT="$2"
+            shift 2
+            ;;
+        -f|--file)
+            if [ -f "$2" ]; then
+                FILE_CONTENTS+=("$(cat "$2")")
+                FILE_NAMES+=("$2")
+            else
+                echo "Error: File $2 not found"
+                exit 1
+            fi
+            shift 2
+            ;;
+        -i|--image)
+            if [ -f "$2" ]; then
+                IMAGE_PATHS+=("$2")
+            else
+                echo "Error: Image $2 not found"
+                exit 1
+            fi
+            shift 2
+            ;;
+        -m|--model)
+            MODEL="$2"
+            shift 2
+            ;;
+        -t|--temperature)
+            TEMPERATURE="$2"
+            shift 2
+            ;;
+        --stream)
+            STREAM=true
+            shift
+            ;;
+        --json)
+            OUTPUT_FORMAT="json"
+            shift
+            ;;
+        -n|--no-markdown)
+            OUTPUT_FORMAT="plain"
+            shift
+            ;;
+        --conversation)
+            CONVERSATION_MODE=true
+            CONVERSATION_FILE="$HOME/.grok/conversation.json"
+            shift
+            ;;
+        -x|--execute)
+            EXECUTE_MODE=true
+            shift
+            ;;
+        -h|--help)
+            cat << EOF
+Grok CLI - AI assistant wrapper
+
+Usage:
+  grok [OPTIONS] "prompt"
+
+Options:
+  -c, --context NAME     Use a predefined context from ~/.grok/contexts/NAME.txt
+  -s, --system "PROMPT"  Set a custom system prompt
+  -f, --file FILE        Include file content (can use multiple times)
+  -i, --image IMAGE      Include image/screenshot (can use multiple times)
+  -m, --model MODEL      Use specific model (default: grok-4-0709)
+  -t, --temperature NUM  Set temperature 0-2 (default: 0.7)
+  -x, --execute         Execute shell commands from response (with confirmation)
+  -h, --help            Show this help message
+
+Context files:
+  Store reusable system prompts in ~/.grok/contexts/
+  Example: ~/.grok/contexts/code-review.txt
+
+Examples:
+  grok "Explain quantum computing"
+  grok -c code-review -f main.py "Review this Python code"
+  grok -f utils.py -f main.py "How do these files interact?"
+  grok -i screenshot.png "What improvements would you suggest for this UI?"
+  grok -i design.jpg -c designer "Create a React component for this design"
+  grok -s "You are a pirate" "Tell me about sailing"
+EOF
+            exit 0
+            ;;
+        *)
+            PROMPT="$*"
+            break
+            ;;
+    esac
+done
+
+# Check if prompt is empty and not piped input
+if [ -z "$PROMPT" ] && [ -t 0 ]; then
+    echo "Error: No prompt provided"
+    echo "Usage: grok [OPTIONS] \"your prompt here\""
+    echo "Run 'grok -h' for help"
+    exit 1
+fi
+
+# Read from stdin if no prompt provided
+if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
+    PROMPT=$(cat)
+fi
+
+# Load context if specified
+if [ -n "$CONTEXT" ]; then
+    CONTEXT_FILE="$HOME/.grok/contexts/$CONTEXT.txt"
+    if [ -f "$CONTEXT_FILE" ]; then
+        SYSTEM_PROMPT=$(cat "$CONTEXT_FILE")
+    else
+        echo "Warning: Context file $CONTEXT_FILE not found"
+    fi
+fi
+
+# Default system prompt if none provided
+if [ -z "$SYSTEM_PROMPT" ]; then
+    if [ "$EXECUTE_MODE" = true ]; then
+        SYSTEM_PROMPT="You are Grok, a helpful AI assistant. When suggesting shell commands, format them with '$ ' at the start of the line so they can be executed. Example:
+$ ls -la
+$ find . -name '*.py' | wc -l"
+    else
+        SYSTEM_PROMPT="You are Grok, a helpful AI assistant. Be concise, accurate, and helpful."
+    fi
+fi
+
+# Combine file contents with prompt if provided
+if [ ${#FILE_CONTENTS[@]} -gt 0 ]; then
+    FILE_SECTION=""
+    for i in "${!FILE_CONTENTS[@]}"; do
+        FILE_SECTION="${FILE_SECTION}File: ${FILE_NAMES[$i]}\n\`\`\`\n${FILE_CONTENTS[$i]}\n\`\`\`\n\n"
+    done
+    PROMPT="${FILE_SECTION}${PROMPT}"
+fi
+
+# Build user content array for multimodal support using jq
+USER_CONTENT_ITEMS=()
+
+# Add text content
+USER_CONTENT_ITEMS+=("$(jq -n --arg text "$PROMPT" '{type: "text", text: $text}')")
+
+# Add images if provided
+if [ ${#IMAGE_PATHS[@]} -gt 0 ]; then
+    for img_path in "${IMAGE_PATHS[@]}"; do
+        # Convert image to base64
+        BASE64_IMAGE=$(base64 < "$img_path" | tr -d '\n')
+        # Detect mime type
+        if [[ "$img_path" =~ \.(jpg|jpeg)$ ]]; then
+            MIME_TYPE="image/jpeg"
+        elif [[ "$img_path" =~ \.png$ ]]; then
+            MIME_TYPE="image/png"
+        elif [[ "$img_path" =~ \.gif$ ]]; then
+            MIME_TYPE="image/gif"
+        elif [[ "$img_path" =~ \.webp$ ]]; then
+            MIME_TYPE="image/webp"
+        else
+            MIME_TYPE="image/jpeg"  # Default fallback
+        fi
+        USER_CONTENT_ITEMS+=("$(jq -n --arg mime "$MIME_TYPE" --arg b64 "$BASE64_IMAGE" \
+            '{type: "image_url", image_url: {url: ("data:" + $mime + ";base64," + $b64)}}')")
+    done
+fi
+
+# Combine all content items into an array
+USER_CONTENT=$(printf '%s\n' "${USER_CONTENT_ITEMS[@]}" | jq -s '.')
+
+# Build messages array using jq
+MESSAGES=$(jq -n \
+    --arg system "$SYSTEM_PROMPT" \
+    --argjson user "$USER_CONTENT" \
+    '[{role: "system", content: $system}, {role: "user", content: $user}]')
+
+# Make API request and extract response
+RESPONSE=$(curl -sS -X POST "$GROK_API_ENDPOINT/chat/completions" \
+  -H "Authorization: Bearer $GROK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"$MODEL\",
+    \"messages\": $MESSAGES,
+    \"temperature\": $TEMPERATURE
+  }" 2>&1)
+
+# Check if response is valid JSON
+if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+    echo "Error: Invalid response from API"
+    echo "Response: $RESPONSE"
+    exit 1
+fi
+
+# Check for errors
+if echo "$RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+    echo "Error: $(echo "$RESPONSE" | jq -r '.error.message')"
+    exit 1
+fi
+
+# Extract and display the response
+CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+if [ -z "$CONTENT" ]; then
+    echo "Error: No content in response"
+    echo "Full response: $RESPONSE"
+    exit 1
+fi
+echo "$CONTENT"
+
+# Execute mode - extract and run commands
+if [ "$EXECUTE_MODE" = true ]; then
+    echo
+    COMMANDS=$(echo "$CONTENT" | grep -E '^\$ ' | sed 's/^\$ //')
+    
+    if [ -n "$COMMANDS" ]; then
+        echo "Found commands to execute:"
+        echo "$COMMANDS"
+        echo
+        
+        while IFS= read -r cmd; do
+            if [ -n "$cmd" ]; then
+                echo -n "Execute: $cmd ? (y/n) "
+                read -r answer
+                if [ "$answer" = "y" ]; then
+                    eval "$cmd"
+                    echo
+                fi
+            fi
+        done <<< "$COMMANDS"
+    else
+        echo "No commands found in response (looking for lines starting with '$ ')"
+    fi
+fi

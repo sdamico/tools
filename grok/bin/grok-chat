@@ -1,0 +1,39 @@
+#!/bin/bash
+# Interactive chat mode for Grok
+
+CONVERSATION_ID="${1:-interactive-$(date +%s)}"
+
+echo "Starting Grok chat (conversation: $CONVERSATION_ID)"
+echo "Type 'exit' or Ctrl+C to quit"
+echo "Type 'clear' to start a new conversation"
+echo "Type 'save' to save conversation history"
+echo "---"
+
+while true; do
+    echo -n "You: "
+    read -r input
+    
+    case "$input" in
+        exit|quit)
+            echo "Goodbye!"
+            break
+            ;;
+        clear)
+            CONVERSATION_ID="interactive-$(date +%s)"
+            echo "Started new conversation: $CONVERSATION_ID"
+            continue
+            ;;
+        save)
+            echo "Conversation saved as: $CONVERSATION_ID"
+            continue
+            ;;
+        "")
+            continue
+            ;;
+        *)
+            echo -n "Grok: "
+            ~/bin/grok-advanced --conversation "$CONVERSATION_ID" --stream "$input"
+            echo
+            ;;
+    esac
+done

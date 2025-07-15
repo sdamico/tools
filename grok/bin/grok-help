@@ -1,0 +1,167 @@
+#!/bin/bash
+
+# Grok Help - Self-documenting guide for all Grok tools
+
+cat << 'EOF'
+🤖 GROK TOOL SUITE - Complete Guide
+===================================
+
+Grok is a powerful AI assistant (via xAI API) with multiple specialized tools.
+This guide helps both humans and AI agents understand how to use Grok effectively.
+
+## CORE TOOLS
+
+### 1. grok - Main Interface
+The primary command for interacting with Grok.
+
+BASIC USAGE:
+  grok "your question here"
+
+FILE ANALYSIS:
+  grok -f file.py "explain this code"
+  grok -f main.py -f utils.py "how do these interact?"
+
+IMAGE ANALYSIS:
+  grok -i screenshot.png "what can be improved?"
+  grok -i design1.jpg -i design2.jpg "compare these"
+
+CONTEXTS (specialized expertise):
+  grok -c code-review -f api.js "review for security"
+  grok -c controls "design PID for 100°C water"
+  grok -c designer -i ui.png "suggest improvements"
+  grok -c analyst -f report.pdf "summarize findings"
+  grok -c debug -f error.log "diagnose issue"
+
+SHELL EXECUTION:
+  grok -x "find large files over 1GB"  # Suggests & executes commands
+  grok -x -f package.json "install missing deps"
+
+PIPE SUPPORT:
+  cat file.txt | grok "summarize this"
+  docker logs app | grok -c debug
+  git diff | grok "write commit message"
+
+### 2. grok-advanced - Power Features
+Enhanced capabilities for complex workflows.
+
+STREAMING:
+  grok-advanced --stream "write a long story"
+
+CONVERSATIONS:
+  grok-advanced --conversation project1 "let's design an API"
+  grok-advanced --conversation project1 "add authentication"
+
+OUTPUT FORMATS:
+  grok-advanced --format json "list 3 colors" | jq
+  grok-advanced --format plain "no markdown formatting"
+
+### 3. grok-chat - Interactive Mode
+Terminal-based chat interface.
+
+  grok-chat                    # Start new chat
+  grok-chat session-name       # Continue specific chat
+  
+Commands: exit, clear, save
+
+### 4. grok-shell - Command Execution
+Specialized for system administration tasks.
+
+  grok-shell "clean up docker"           # With confirmation
+  grok-shell -y "show disk usage"        # Auto-execute
+  grok-shell -i                          # Interactive mode
+
+### 5. grok-codebase - Project Analysis
+Analyze entire codebases (like gemini -p).
+
+  grok-codebase . "explain architecture"
+  grok-codebase -e py,js src/ "find bugs"
+  grok-codebase --ignore test . "review prod code only"
+
+## AVAILABLE CONTEXTS
+
+Contexts are specialized system prompts in ~/.grok/contexts/:
+
+- code-review: Security, performance, best practices focus
+- controls: Temperature control & PID systems for Impulse Labs
+- designer: UI/UX analysis and implementation
+- analyst: Document and data analysis
+- debug: Error diagnosis and troubleshooting
+
+Create custom contexts by adding .txt files to ~/.grok/contexts/
+
+## ENVIRONMENT SETUP
+
+1. Ensure ~/bin is in your PATH:
+   export PATH="$HOME/bin:$PATH"
+
+2. API key is embedded in scripts (already configured)
+
+3. Optional: Set default model
+   export GROK_MODEL="grok-4-0709"
+
+## FOR AI AGENTS
+
+When invoking grok programmatically:
+
+1. SIMPLE QUERIES:
+   grok "question"
+
+2. FILE ANALYSIS:
+   grok -f <filename> "analyze this"
+
+3. MULTI-FILE:
+   grok -f file1.py -f file2.py "explain relationship"
+
+4. COMMAND EXECUTION:
+   grok -x "task description"  # Will prompt for confirmation
+
+5. STREAMING RESPONSES:
+   grok-advanced --stream "prompt"
+
+6. JSON OUTPUT:
+   grok-advanced --format json "prompt"
+
+7. CONVERSATIONS:
+   grok-advanced --conversation <id> "message"
+
+## TIPS
+
+- Use contexts (-c) for specialized knowledge
+- Combine -f for multiple files, -i for multiple images
+- Pipe command output for analysis
+- Use -x flag to execute suggested commands
+- Check ~/.grok/conversations/ for chat history
+
+## EXAMPLES FOR COMMON TASKS
+
+# Code review
+grok -c code-review -f app.py "security audit"
+
+# Debug errors  
+tail -f app.log | grok -c debug
+
+# Generate code from design
+grok -i mockup.png -c designer "create React component"
+
+# System maintenance
+grok-shell "free up disk space safely"
+
+# Project understanding
+grok-codebase . "what does this project do?"
+
+# Interactive help
+grok-chat coding-help
+
+## MODEL CAPABILITIES
+
+Grok-4 (grok-4-0709) supports:
+- 128k token context window
+- Multi-modal (text + images)
+- Function calling (via API)
+- Reasoning capabilities
+- Code generation & analysis
+
+---
+For updates: Check ~/.claude/CLAUDE.md
+API Docs: https://docs.x.ai/
+EOF

@@ -1,0 +1,271 @@
+#!/bin/bash
+
+# Advanced Grok wrapper with streaming, conversations, and more
+# This complements the basic grok script with additional features
+
+set -euo pipefail
+
+# Configuration
+GROK_API_KEY="${GROK_API_KEY:?Error: GROK_API_KEY environment variable is not set}"
+GROK_API_ENDPOINT="${GROK_API_ENDPOINT:-https://api.x.ai/v1}"
+GROK_CONFIG_DIR="${GROK_CONFIG_DIR:-$HOME/.grok}"
+CONVERSATION_DIR="$GROK_CONFIG_DIR/conversations"
+CONTEXT_DIR="$GROK_CONFIG_DIR/contexts"
+
+# Create directories if needed
+mkdir -p "$CONVERSATION_DIR" "$CONTEXT_DIR"
+
+# Function to handle streaming responses
+stream_response() {
+    local response=""
+    while IFS= read -r line; do
+        if [[ $line == data:* ]]; then
+            # Extract content from SSE
+            content=$(echo "$line" | sed 's/^data: //' | jq -r '.choices[0].delta.content // empty' 2>/dev/null)
+            if [ -n "$content" ]; then
+                printf "%s" "$content"
+                response="${response}${content}"
+            fi
+        fi
+    done
+    echo # Final newline
+    echo "$response"
+}
+
+# Function to manage conversation history
+load_conversation() {
+    local conv_id="$1"
+    local conv_file="$CONVERSATION_DIR/$conv_id.json"
+    if [ -f "$conv_file" ]; then
+        cat "$conv_file"
+    else
+        echo '{"messages": []}'
+    fi
+}
+
+save_conversation() {
+    local conv_id="$1"
+    local messages="$2"
+    local conv_file="$CONVERSATION_DIR/$conv_id.json"
+    echo "{\"messages\": $messages}" > "$conv_file"
+}
+
+# Function to format output
+format_output() {
+    local content="$1"
+    local format="$2"
+    
+    case "$format" in
+        json)
+            jq -n --arg content "$content" '{response: $content}'
+            ;;
+        plain)
+            echo "$content" | sed 's/[*_`]//g'  # Strip markdown
+            ;;
+        *)
+            echo "$content"  # Default markdown
+            ;;
+    esac
+}
+
+# Main function
+main() {
+    local prompt=""
+    local context=""
+    local system_prompt=""
+    local model="grok-4-0709"
+    local temperature=0.7
+    local stream=false
+    local output_format="markdown"
+    local conversation_id=""
+    local max_tokens=""
+    local retry_count=3
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -c|--context)
+                context="$2"
+                shift 2
+                ;;
+            -s|--system)
+                system_prompt="$2"
+                shift 2
+                ;;
+            --conversation)
+                conversation_id="${2:-default}"
+                shift 2
+                ;;
+            --stream)
+                stream=true
+                shift
+                ;;
+            --format)
+                output_format="$2"
+                shift 2
+                ;;
+            --max-tokens)
+                max_tokens="$2"
+                shift 2
+                ;;
+            --retry)
+                retry_count="$2"
+                shift 2
+                ;;
+            -h|--help)
+                cat << EOF
+Advanced Grok CLI Features
+
+Usage:
+  grok-advanced [OPTIONS] "prompt"
+  echo "prompt" | grok-advanced [OPTIONS]
+
+Options:
+  -c, --context NAME       Use predefined context
+  -s, --system PROMPT      Custom system prompt
+  --conversation ID        Continue conversation (ID optional)
+  --stream                 Stream responses in real-time
+  --format FORMAT          Output format: markdown|json|plain
+  --max-tokens N           Limit response tokens
+  --retry N                Retry failed requests N times
+
+Examples:
+  # Streaming response
+  grok-advanced --stream "Write a long story"
+  
+  # Conversation mode
+  grok-advanced --conversation chat1 "Hello"
+  grok-advanced --conversation chat1 "What did I just say?"
+  
+  # Pipe support
+  cat file.py | grok-advanced -c code-review
+  
+  # JSON output
+  grok-advanced --format json "List 3 colors"
+EOF
+                exit 0
+                ;;
+            *)
+                prompt="$*"
+                break
+                ;;
+        esac
+    done
+    
+    # Read from stdin if no prompt
+    if [ -z "$prompt" ] && [ ! -t 0 ]; then
+        prompt=$(cat)
+    fi
+    
+    if [ -z "$prompt" ]; then
+        echo "Error: No prompt provided"
+        exit 1
+    fi
+    
+    # Load context
+    if [ -n "$context" ]; then
+        context_file="$CONTEXT_DIR/$context.txt"
+        if [ -f "$context_file" ]; then
+            system_prompt=$(cat "$context_file")
+        fi
+    fi
+    
+    # Default system prompt
+    if [ -z "$system_prompt" ]; then
+        system_prompt="You are Grok, a helpful AI assistant."
+    fi
+    
+    # Build messages
+    local messages='[{"role": "system", "content": "'"$(echo "$system_prompt" | jq -Rs .)"'"}'
+    
+    # Load conversation history if specified
+    if [ -n "$conversation_id" ]; then
+        local conv_data=$(load_conversation "$conversation_id")
+        local history=$(echo "$conv_data" | jq -r '.messages | @json')
+        if [ "$history" != "[]" ] && [ "$history" != "null" ]; then
+            messages=$(echo "$conv_data" | jq -r '.messages | @json')
+            # Remove closing bracket to append new message
+            messages="${messages%]}"
+            messages="${messages},"
+        else
+            messages="$messages,"
+        fi
+    else
+        messages="$messages,"
+    fi
+    
+    # Add current user message
+    messages="${messages}{\"role\": \"user\", \"content\": $(echo "$prompt" | jq -Rs .)}]"
+    
+    # Build request
+    local request_body="{
+        \"model\": \"$model\",
+        \"messages\": $messages,
+        \"temperature\": $temperature"
+    
+    if [ -n "$max_tokens" ]; then
+        request_body="${request_body},\"max_tokens\": $max_tokens"
+    fi
+    
+    if [ "$stream" = true ]; then
+        request_body="${request_body},\"stream\": true"
+    fi
+    
+    request_body="${request_body}}"
+    
+    # Make API request with retry logic
+    local attempt=1
+    local response=""
+    
+    while [ $attempt -le $retry_count ]; do
+        if [ "$stream" = true ]; then
+            # Streaming request
+            response=$(curl -sS -N -X POST "$GROK_API_ENDPOINT/chat/completions" \
+                -H "Authorization: Bearer $GROK_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "$request_body" | stream_response)
+        else
+            # Regular request
+            response=$(curl -sS -X POST "$GROK_API_ENDPOINT/chat/completions" \
+                -H "Authorization: Bearer $GROK_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "$request_body")
+        fi
+        
+        # Check for errors
+        if echo "$response" | jq -e '.error' > /dev/null 2>&1; then
+            if [ $attempt -lt $retry_count ]; then
+                echo "Error: $(echo "$response" | jq -r '.error.message'). Retrying..." >&2
+                sleep $((attempt * 2))
+                ((attempt++))
+                continue
+            else
+                echo "Error after $retry_count attempts: $(echo "$response" | jq -r '.error.message')" >&2
+                exit 1
+            fi
+        fi
+        
+        break
+    done
+    
+    # Extract content
+    local content=""
+    if [ "$stream" = true ]; then
+        content="$response"  # Already extracted during streaming
+    else
+        content=$(echo "$response" | jq -r '.choices[0].message.content')
+    fi
+    
+    # Save conversation if specified
+    if [ -n "$conversation_id" ]; then
+        # Update messages with assistant response
+        local updated_messages=$(echo "$messages" | jq ". + [{\"role\": \"assistant\", \"content\": $(echo "$content" | jq -Rs .)}]")
+        save_conversation "$conversation_id" "$updated_messages"
+    fi
+    
+    # Format and output
+    format_output "$content" "$output_format"
+}
+
+# Run main function
+main "$@"
