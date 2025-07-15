@@ -8,6 +8,11 @@
 #   grok -f file.txt "analyze this file"       # Include file content
 #   grok -i image.png "describe this image"    # Include images/screenshots
 
+# Load local config if it exists
+if [ -f "$HOME/.grok/config" ]; then
+    source "$HOME/.grok/config"
+fi
+
 # Set API credentials
 GROK_API_KEY="${GROK_API_KEY:?Error: GROK_API_KEY environment variable is not set}"
 GROK_API_ENDPOINT="${GROK_API_ENDPOINT:-https://api.x.ai/v1}"

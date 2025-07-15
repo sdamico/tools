@@ -5,6 +5,10 @@
 *_key
 api_key*
 
+# Local Grok configuration  
+.grok/config
+grok/config
+
 # OS generated files
 .DS_Store
 .DS_Store?

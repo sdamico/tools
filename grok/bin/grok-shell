@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Load local config if it exists
+if [ -f "$HOME/.grok/config" ]; then
+    source "$HOME/.grok/config"
+fi
+
 # Grok with shell command execution
 # Asks Grok what commands to run, shows them to you, and executes with confirmation
 

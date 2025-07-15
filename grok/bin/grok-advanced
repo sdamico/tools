@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Load local config if it exists
+if [ -f "$HOME/.grok/config" ]; then
+    source "$HOME/.grok/config"
+fi
+
 # Advanced Grok wrapper with streaming, conversations, and more
 # This complements the basic grok script with additional features
 
