@@ -26,7 +26,7 @@ stream_response() {
     while IFS= read -r line; do
         if [[ $line == data:* ]]; then
             # Extract content from SSE
-            content=$(echo "$line" | sed 's/^data: //' | jq -r '.choices[0].delta.content // empty' 2>/dev/null)
+            content=$(echo "$line" | sed 's/^data: //' | jq -r '.choices[0].delta.content // empty' 2>/dev/null || true)
             if [ -n "$content" ]; then
                 printf "%s" "$content"
                 response="${response}${content}"
@@ -181,7 +181,7 @@ EOF
     fi
     
     # Build messages
-    local messages='[{"role": "system", "content": "'"$(echo "$system_prompt" | jq -Rs .)"'"}'
+    local messages='[{"role": "system", "content": '"$(echo "$system_prompt" | jq -Rs .)"'}'
     
     # Load conversation history if specified
     if [ -n "$conversation_id" ]; then
@@ -258,7 +258,12 @@ EOF
     if [ "$stream" = true ]; then
         content="$response"  # Already extracted during streaming
     else
-        content=$(echo "$response" | jq -r '.choices[0].message.content')
+        content=$(echo "$response" | jq -r '.choices[0].message.content' 2>/dev/null)
+        if [ -z "$content" ] || [ "$content" = "null" ]; then
+            echo "Error: Failed to parse response. Raw response:" >&2
+            echo "$response" | head -c 1000 >&2
+            exit 1
+        fi
     fi
     
     # Save conversation if specified
